@@ -916,7 +916,7 @@ document.addEventListener("DOMContentLoaded", () => {
 
     try {
       // Filter out empty strings before sending, keeping track of original indices
-      const buildBatchPayload = (texts) => {
+      const filterNonEmptyTexts = (texts) => {
         const indices = [];
         const nonEmpty = [];
         texts.forEach((text, i) => {
@@ -928,8 +928,8 @@ document.addEventListener("DOMContentLoaded", () => {
         return { indices, nonEmpty };
       };
 
-      const titlesBatch = buildBatchPayload(titles);
-      const descriptionsBatch = buildBatchPayload(descriptions);
+      const titlesBatch = filterNonEmptyTexts(titles);
+      const descriptionsBatch = filterNonEmptyTexts(descriptions);
 
       // Nothing to translate (all cards empty)
       if (titlesBatch.nonEmpty.length === 0 && descriptionsBatch.nonEmpty.length === 0) {
@@ -937,12 +937,12 @@ document.addEventListener("DOMContentLoaded", () => {
       }
 
       // Translate all texts in two batch requests (titles and descriptions)
-      const makeBatchRequest = (batch) =>
-        batch.nonEmpty.length > 0
+      const makeBatchRequest = (filteredTexts) =>
+        filteredTexts.nonEmpty.length > 0
           ? fetch("/translate/batch", {
               method: "POST",
               headers: { "Content-Type": "application/json" },
-              body: JSON.stringify({ texts: batch.nonEmpty, target_language: targetLanguage }),
+              body: JSON.stringify({ texts: filteredTexts.nonEmpty, target_language: targetLanguage }),
             })
           : Promise.resolve(null);
 
