@@ -883,30 +883,18 @@ document.addEventListener("DOMContentLoaded", () => {
     }
   }
 
-  // Translate a single text string via the API
-  async function translateText(text, targetLanguage) {
-    const response = await fetch("/translate", {
-      method: "POST",
-      headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({ text, target_language: targetLanguage }),
-    });
-    if (!response.ok) {
-      throw new Error("Translation request failed");
-    }
-    const data = await response.json();
-    return data.translated;
-  }
-
-  // Apply translations to visible activity cards
+  // Apply translations to visible activity cards using a single batch request
   async function translateActivities(targetLanguage) {
     if (!targetLanguage) return;
 
     translateButton.disabled = true;
     translateButton.textContent = "Translating…";
 
-    const cards = activitiesList.querySelectorAll(".activity-card");
-    const translationPromises = [];
+    const cards = Array.from(activitiesList.querySelectorAll(".activity-card"));
 
+    // Collect all titles and descriptions, saving originals
+    const titles = [];
+    const descriptions = [];
     cards.forEach((card) => {
       const title = card.querySelector("h4");
       const description = card.querySelector("p");
@@ -918,30 +906,49 @@ document.addEventListener("DOMContentLoaded", () => {
         description.dataset.original = description.textContent;
       }
 
-      if (title) {
-        translationPromises.push(
-          translateText(title.dataset.original, targetLanguage).then(
-            (translated) => {
-              title.textContent = translated;
-            }
-          )
-        );
-      }
-      if (description) {
-        translationPromises.push(
-          translateText(description.dataset.original, targetLanguage).then(
-            (translated) => {
-              description.textContent = translated;
-            }
-          )
-        );
-      }
+      titles.push(title ? title.dataset.original : "");
+      descriptions.push(description ? description.dataset.original : "");
     });
 
     try {
-      await Promise.all(translationPromises);
+      // Translate all texts in two batch requests (titles and descriptions)
+      const [titlesResponse, descriptionsResponse] = await Promise.all([
+        fetch("/translate/batch", {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({ texts: titles, target_language: targetLanguage }),
+        }),
+        fetch("/translate/batch", {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({ texts: descriptions, target_language: targetLanguage }),
+        }),
+      ]);
+
+      if (!titlesResponse.ok || !descriptionsResponse.ok) {
+        const failedResponse = !titlesResponse.ok ? titlesResponse : descriptionsResponse;
+        const errorData = await failedResponse.json().catch(() => ({}));
+        throw new Error(
+          `Translation request failed with status ${failedResponse.status}: ${errorData.detail || failedResponse.statusText}`
+        );
+      }
+
+      const titlesData = await titlesResponse.json();
+      const descriptionsData = await descriptionsResponse.json();
+
+      // Apply translated text back to the cards
+      cards.forEach((card, index) => {
+        const title = card.querySelector("h4");
+        const description = card.querySelector("p");
+        if (title && titlesData.translated[index]) {
+          title.textContent = titlesData.translated[index];
+        }
+        if (description && descriptionsData.translated[index]) {
+          description.textContent = descriptionsData.translated[index];
+        }
+      });
     } catch (error) {
-      showMessage("Translation failed. Please try again.", "error");
+      showMessage(`Translation failed: ${error.message}`, "error");
       console.error("Translation error:", error);
     }
 
