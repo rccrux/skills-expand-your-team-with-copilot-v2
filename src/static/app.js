@@ -927,10 +927,10 @@ document.addEventListener("DOMContentLoaded", () => {
 
       if (!titlesResponse.ok || !descriptionsResponse.ok) {
         const failedResponse = !titlesResponse.ok ? titlesResponse : descriptionsResponse;
-        const errorData = await failedResponse.json().catch(() => ({}));
-        throw new Error(
-          `Translation request failed with status ${failedResponse.status}: ${errorData.detail || failedResponse.statusText}`
+        console.error(
+          `Translation request failed with status ${failedResponse.status}: ${failedResponse.statusText}`
         );
+        throw new Error("Unable to translate at this time. Please try again later.");
       }
 
       const titlesData = await titlesResponse.json();

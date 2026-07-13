@@ -2,10 +2,14 @@
 Translation endpoints for the High School Management System API
 """
 
+import logging
+import threading
 from fastapi import APIRouter, HTTPException
 from pydantic import BaseModel
 from typing import List
 from deep_translator import GoogleTranslator
+
+logger = logging.getLogger(__name__)
 
 router = APIRouter(
     prefix="/translate",
@@ -27,17 +31,19 @@ SUPPORTED_LANGUAGES = {
     "hi": "Hindi",
 }
 
-# Cache translator instances per target language to avoid redundant construction
+# Thread-safe cache of translator instances per target language
 _translator_cache: dict[str, GoogleTranslator] = {}
+_cache_lock = threading.Lock()
 
 
 def get_translator(target_language: str) -> GoogleTranslator:
     """Return a cached GoogleTranslator for the given target language."""
-    if target_language not in _translator_cache:
-        _translator_cache[target_language] = GoogleTranslator(
-            source="auto", target=target_language
-        )
-    return _translator_cache[target_language]
+    with _cache_lock:
+        if target_language not in _translator_cache:
+            _translator_cache[target_language] = GoogleTranslator(
+                source="auto", target=target_language
+            )
+        return _translator_cache[target_language]
 
 
 class TranslationRequest(BaseModel):
@@ -78,7 +84,11 @@ def translate_text(request: TranslationRequest):
             "target_language_name": SUPPORTED_LANGUAGES[request.target_language],
         }
     except Exception as e:
-        raise HTTPException(status_code=500, detail=f"Translation failed: {str(e)}")
+        logger.error("Translation failed for language %s: %s", request.target_language, e)
+        raise HTTPException(
+            status_code=500,
+            detail="Translation service temporarily unavailable"
+        )
 
 
 @router.post("/batch")
@@ -105,4 +115,8 @@ def translate_batch(request: BatchTranslationRequest):
             "target_language_name": SUPPORTED_LANGUAGES[request.target_language],
         }
     except Exception as e:
-        raise HTTPException(status_code=500, detail=f"Translation failed: {str(e)}")
+        logger.error("Batch translation failed for language %s: %s", request.target_language, e)
+        raise HTTPException(
+            status_code=500,
+            detail="Translation service temporarily unavailable"
+        )
