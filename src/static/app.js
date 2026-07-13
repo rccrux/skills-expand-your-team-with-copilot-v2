@@ -861,8 +861,131 @@ document.addEventListener("DOMContentLoaded", () => {
     setTimeRangeFilter,
   };
 
+  // Translation state
+  let currentLanguage = "";
+  const languageSelect = document.getElementById("language-select");
+  const translateButton = document.getElementById("translate-button");
+
+  // Load supported languages from the API
+  async function loadLanguages() {
+    try {
+      const response = await fetch("/translate/languages");
+      if (!response.ok) return;
+      const languages = await response.json();
+      Object.entries(languages).forEach(([code, name]) => {
+        const option = document.createElement("option");
+        option.value = code;
+        option.textContent = name;
+        languageSelect.appendChild(option);
+      });
+    } catch (error) {
+      console.error("Error loading languages:", error);
+    }
+  }
+
+  // Translate a single text string via the API
+  async function translateText(text, targetLanguage) {
+    const response = await fetch("/translate", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ text, target_language: targetLanguage }),
+    });
+    if (!response.ok) {
+      throw new Error("Translation request failed");
+    }
+    const data = await response.json();
+    return data.translated;
+  }
+
+  // Apply translations to visible activity cards
+  async function translateActivities(targetLanguage) {
+    if (!targetLanguage) return;
+
+    translateButton.disabled = true;
+    translateButton.textContent = "Translating…";
+
+    const cards = activitiesList.querySelectorAll(".activity-card");
+    const translationPromises = [];
+
+    cards.forEach((card) => {
+      const title = card.querySelector("h4");
+      const description = card.querySelector("p");
+
+      if (title && title.dataset.original === undefined) {
+        title.dataset.original = title.textContent;
+      }
+      if (description && description.dataset.original === undefined) {
+        description.dataset.original = description.textContent;
+      }
+
+      if (title) {
+        translationPromises.push(
+          translateText(title.dataset.original, targetLanguage).then(
+            (translated) => {
+              title.textContent = translated;
+            }
+          )
+        );
+      }
+      if (description) {
+        translationPromises.push(
+          translateText(description.dataset.original, targetLanguage).then(
+            (translated) => {
+              description.textContent = translated;
+            }
+          )
+        );
+      }
+    });
+
+    try {
+      await Promise.all(translationPromises);
+    } catch (error) {
+      showMessage("Translation failed. Please try again.", "error");
+      console.error("Translation error:", error);
+    }
+
+    translateButton.disabled = false;
+    translateButton.textContent = "Translate";
+  }
+
+  // Restore original (English) text on cards
+  function restoreOriginalText() {
+    const cards = activitiesList.querySelectorAll(".activity-card");
+    cards.forEach((card) => {
+      const title = card.querySelector("h4");
+      const description = card.querySelector("p");
+      if (title && title.dataset.original !== undefined) {
+        title.textContent = title.dataset.original;
+      }
+      if (description && description.dataset.original !== undefined) {
+        description.textContent = description.dataset.original;
+      }
+    });
+  }
+
+  // Translate button click handler
+  translateButton.addEventListener("click", async () => {
+    const selectedLanguage = languageSelect.value;
+    if (!selectedLanguage) {
+      showMessage("Please select a language to translate.", "error");
+      return;
+    }
+    currentLanguage = selectedLanguage;
+    await translateActivities(currentLanguage);
+  });
+
+  // Reset to English when language is cleared
+  languageSelect.addEventListener("change", () => {
+    if (!languageSelect.value) {
+      currentLanguage = "";
+      restoreOriginalText();
+    }
+  });
+
   // Initialize app
   checkAuthentication();
   initializeFilters();
   fetchActivities();
+  loadLanguages();
 });
