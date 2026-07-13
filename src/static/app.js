@@ -861,8 +861,175 @@ document.addEventListener("DOMContentLoaded", () => {
     setTimeRangeFilter,
   };
 
+  // Translation state
+  let currentLanguage = "";
+  const languageSelect = document.getElementById("language-select");
+  const translateButton = document.getElementById("translate-button");
+
+  // Load supported languages from the API
+  async function loadLanguages() {
+    try {
+      const response = await fetch("/translate/languages");
+      if (!response.ok) {
+        showMessage("Could not load language options. Translation may be unavailable.", "error");
+        return;
+      }
+      const languages = await response.json();
+      Object.entries(languages).forEach(([code, name]) => {
+        const option = document.createElement("option");
+        option.value = code;
+        option.textContent = name;
+        languageSelect.appendChild(option);
+      });
+    } catch (error) {
+      console.error("Error loading languages:", error);
+      showMessage("Could not load language options. Translation may be unavailable.", "error");
+    }
+  }
+
+  // Apply translations to visible activity cards using a single batch request
+  async function translateActivities(targetLanguage) {
+    if (!targetLanguage) return;
+
+    translateButton.disabled = true;
+    translateButton.textContent = "Translating…";
+
+    const cards = Array.from(activitiesList.querySelectorAll(".activity-card"));
+
+    // Collect all titles and descriptions, saving originals
+    const titles = [];
+    const descriptions = [];
+    cards.forEach((card) => {
+      const title = card.querySelector("h4");
+      const description = card.querySelector("p");
+
+      if (title && title.dataset.original === undefined) {
+        title.dataset.original = title.textContent;
+      }
+      if (description && description.dataset.original === undefined) {
+        description.dataset.original = description.textContent;
+      }
+
+      titles.push(title && title.dataset.original ? title.dataset.original : "");
+      descriptions.push(description && description.dataset.original ? description.dataset.original : "");
+    });
+
+    try {
+      // Filter out empty strings before sending, keeping track of original indices
+      const filterNonEmptyTexts = (texts) => {
+        const indices = [];
+        const nonEmpty = [];
+        texts.forEach((text, i) => {
+          if (text.trim()) {
+            indices.push(i);
+            nonEmpty.push(text);
+          }
+        });
+        return { indices, nonEmpty };
+      };
+
+      const titlesBatch = filterNonEmptyTexts(titles);
+      const descriptionsBatch = filterNonEmptyTexts(descriptions);
+
+      // Nothing to translate (all cards empty)
+      if (titlesBatch.nonEmpty.length === 0 && descriptionsBatch.nonEmpty.length === 0) {
+        return;
+      }
+
+      // Translate all texts in two batch requests (titles and descriptions)
+      const makeBatchRequest = (filteredTexts) =>
+        filteredTexts.nonEmpty.length > 0
+          ? fetch("/translate/batch", {
+              method: "POST",
+              headers: { "Content-Type": "application/json" },
+              body: JSON.stringify({ texts: filteredTexts.nonEmpty, target_language: targetLanguage }),
+            })
+          : Promise.resolve(null);
+
+      const [titlesResponse, descriptionsResponse] = await Promise.all([
+        makeBatchRequest(titlesBatch),
+        makeBatchRequest(descriptionsBatch),
+      ]);
+
+      if ((titlesResponse && !titlesResponse.ok) || (descriptionsResponse && !descriptionsResponse.ok)) {
+        const failedResponse = (titlesResponse && !titlesResponse.ok) ? titlesResponse : descriptionsResponse;
+        console.error(
+          `Translation request failed with status ${failedResponse.status}: ${failedResponse.statusText}`
+        );
+        throw new Error("Unable to translate at this time. Please try again later.");
+      }
+
+      const titlesData = titlesResponse ? await titlesResponse.json() : { translated: [] };
+      const descriptionsData = descriptionsResponse ? await descriptionsResponse.json() : { translated: [] };
+
+      // Rebuild full-length translated arrays aligned with original card indices
+      const titleTranslations = Array(cards.length).fill(null);
+      titlesBatch.indices.forEach((originalIndex, batchIndex) => {
+        titleTranslations[originalIndex] = titlesData.translated[batchIndex];
+      });
+
+      const descriptionTranslations = Array(cards.length).fill(null);
+      descriptionsBatch.indices.forEach((originalIndex, batchIndex) => {
+        descriptionTranslations[originalIndex] = descriptionsData.translated[batchIndex];
+      });
+
+      // Apply translated text back to the cards
+      cards.forEach((card, index) => {
+        const title = card.querySelector("h4");
+        const description = card.querySelector("p");
+        if (title && titleTranslations[index]) {
+          title.textContent = titleTranslations[index];
+        }
+        if (description && descriptionTranslations[index]) {
+          description.textContent = descriptionTranslations[index];
+        }
+      });
+    } catch (error) {
+      showMessage(`Translation failed: ${error.message}`, "error");
+      console.error("Translation error:", error);
+    }
+
+    translateButton.disabled = false;
+    translateButton.textContent = "Translate";
+  }
+
+  // Restore original (English) text on cards
+  function restoreOriginalText() {
+    const cards = activitiesList.querySelectorAll(".activity-card");
+    cards.forEach((card) => {
+      const title = card.querySelector("h4");
+      const description = card.querySelector("p");
+      if (title && title.dataset.original !== undefined) {
+        title.textContent = title.dataset.original;
+      }
+      if (description && description.dataset.original !== undefined) {
+        description.textContent = description.dataset.original;
+      }
+    });
+  }
+
+  // Translate button click handler
+  translateButton.addEventListener("click", async () => {
+    const selectedLanguage = languageSelect.value;
+    if (!selectedLanguage) {
+      showMessage("Please select a language to translate.", "error");
+      return;
+    }
+    currentLanguage = selectedLanguage;
+    await translateActivities(currentLanguage);
+  });
+
+  // Reset to English when language is cleared
+  languageSelect.addEventListener("change", () => {
+    if (!languageSelect.value) {
+      currentLanguage = "";
+      restoreOriginalText();
+    }
+  });
+
   // Initialize app
   checkAuthentication();
   initializeFilters();
   fetchActivities();
+  loadLanguages();
 });

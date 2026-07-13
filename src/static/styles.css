@@ -617,6 +617,52 @@ footer {
   position: absolute;
   top: 10px;
   right: 15px;
+  display: flex;
+  align-items: center;
+  gap: 10px;
+}
+
+#language-selector {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+}
+
+#language-selector label {
+  font-size: 1.1rem;
+  cursor: default;
+}
+
+#language-select {
+  background-color: rgba(255, 255, 255, 0.2);
+  color: var(--primary-text);
+  border: 1px solid rgba(255, 255, 255, 0.4);
+  border-radius: 20px;
+  padding: 3px 8px;
+  font-size: 0.85rem;
+  cursor: pointer;
+}
+
+#language-select option {
+  background-color: var(--primary);
+  color: var(--primary-text);
+}
+
+#translate-button {
+  background-color: rgba(255, 255, 255, 0.2);
+  border-radius: 20px;
+  padding: 4px 12px;
+  font-size: 0.85rem;
+  transition: background-color 0.2s;
+}
+
+#translate-button:hover:not(:disabled) {
+  background-color: rgba(255, 255, 255, 0.3);
+}
+
+#translate-button:disabled {
+  opacity: 0.6;
+  cursor: not-allowed;
 }
 
 #user-status {
