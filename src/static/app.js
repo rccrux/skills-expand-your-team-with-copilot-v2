@@ -870,7 +870,10 @@ document.addEventListener("DOMContentLoaded", () => {
   async function loadLanguages() {
     try {
       const response = await fetch("/translate/languages");
-      if (!response.ok) return;
+      if (!response.ok) {
+        showMessage("Could not load language options. Translation may be unavailable.", "error");
+        return;
+      }
       const languages = await response.json();
       Object.entries(languages).forEach(([code, name]) => {
         const option = document.createElement("option");
@@ -880,6 +883,7 @@ document.addEventListener("DOMContentLoaded", () => {
       });
     } catch (error) {
       console.error("Error loading languages:", error);
+      showMessage("Could not load language options. Translation may be unavailable.", "error");
     }
   }
 
@@ -906,45 +910,78 @@ document.addEventListener("DOMContentLoaded", () => {
         description.dataset.original = description.textContent;
       }
 
-      titles.push(title ? title.dataset.original : "");
-      descriptions.push(description ? description.dataset.original : "");
+      titles.push(title && title.dataset.original ? title.dataset.original : "");
+      descriptions.push(description && description.dataset.original ? description.dataset.original : "");
     });
 
     try {
+      // Filter out empty strings before sending, keeping track of original indices
+      const buildBatchPayload = (texts) => {
+        const indices = [];
+        const nonEmpty = [];
+        texts.forEach((text, i) => {
+          if (text.trim()) {
+            indices.push(i);
+            nonEmpty.push(text);
+          }
+        });
+        return { indices, nonEmpty };
+      };
+
+      const titlesBatch = buildBatchPayload(titles);
+      const descriptionsBatch = buildBatchPayload(descriptions);
+
+      // Nothing to translate (all cards empty)
+      if (titlesBatch.nonEmpty.length === 0 && descriptionsBatch.nonEmpty.length === 0) {
+        return;
+      }
+
       // Translate all texts in two batch requests (titles and descriptions)
+      const makeBatchRequest = (batch) =>
+        batch.nonEmpty.length > 0
+          ? fetch("/translate/batch", {
+              method: "POST",
+              headers: { "Content-Type": "application/json" },
+              body: JSON.stringify({ texts: batch.nonEmpty, target_language: targetLanguage }),
+            })
+          : Promise.resolve(null);
+
       const [titlesResponse, descriptionsResponse] = await Promise.all([
-        fetch("/translate/batch", {
-          method: "POST",
-          headers: { "Content-Type": "application/json" },
-          body: JSON.stringify({ texts: titles, target_language: targetLanguage }),
-        }),
-        fetch("/translate/batch", {
-          method: "POST",
-          headers: { "Content-Type": "application/json" },
-          body: JSON.stringify({ texts: descriptions, target_language: targetLanguage }),
-        }),
+        makeBatchRequest(titlesBatch),
+        makeBatchRequest(descriptionsBatch),
       ]);
 
-      if (!titlesResponse.ok || !descriptionsResponse.ok) {
-        const failedResponse = !titlesResponse.ok ? titlesResponse : descriptionsResponse;
+      if ((titlesResponse && !titlesResponse.ok) || (descriptionsResponse && !descriptionsResponse.ok)) {
+        const failedResponse = (titlesResponse && !titlesResponse.ok) ? titlesResponse : descriptionsResponse;
         console.error(
           `Translation request failed with status ${failedResponse.status}: ${failedResponse.statusText}`
         );
         throw new Error("Unable to translate at this time. Please try again later.");
       }
 
-      const titlesData = await titlesResponse.json();
-      const descriptionsData = await descriptionsResponse.json();
+      const titlesData = titlesResponse ? await titlesResponse.json() : { translated: [] };
+      const descriptionsData = descriptionsResponse ? await descriptionsResponse.json() : { translated: [] };
+
+      // Rebuild full-length translated arrays aligned with original card indices
+      const titleTranslations = Array(cards.length).fill(null);
+      titlesBatch.indices.forEach((originalIndex, batchIndex) => {
+        titleTranslations[originalIndex] = titlesData.translated[batchIndex];
+      });
+
+      const descriptionTranslations = Array(cards.length).fill(null);
+      descriptionsBatch.indices.forEach((originalIndex, batchIndex) => {
+        descriptionTranslations[originalIndex] = descriptionsData.translated[batchIndex];
+      });
 
       // Apply translated text back to the cards
       cards.forEach((card, index) => {
         const title = card.querySelector("h4");
         const description = card.querySelector("p");
-        if (title && titlesData.translated[index]) {
-          title.textContent = titlesData.translated[index];
+        if (title && titleTranslations[index]) {
+          title.textContent = titleTranslations[index];
         }
-        if (description && descriptionsData.translated[index]) {
-          description.textContent = descriptionsData.translated[index];
+        if (description && descriptionTranslations[index]) {
+          description.textContent = descriptionTranslations[index];
         }
       });
     } catch (error) {

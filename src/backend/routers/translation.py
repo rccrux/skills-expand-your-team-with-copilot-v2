@@ -3,7 +3,6 @@ Translation endpoints for the High School Management System API
 """
 
 import logging
-import threading
 from fastapi import APIRouter, HTTPException
 from pydantic import BaseModel
 from typing import List
@@ -30,20 +29,6 @@ SUPPORTED_LANGUAGES = {
     "ru": "Russian",
     "hi": "Hindi",
 }
-
-# Thread-safe cache of translator instances per target language
-_translator_cache: dict[str, GoogleTranslator] = {}
-_cache_lock = threading.Lock()
-
-
-def get_translator(target_language: str) -> GoogleTranslator:
-    """Return a cached GoogleTranslator for the given target language."""
-    with _cache_lock:
-        if target_language not in _translator_cache:
-            _translator_cache[target_language] = GoogleTranslator(
-                source="auto", target=target_language
-            )
-        return _translator_cache[target_language]
 
 
 class TranslationRequest(BaseModel):
@@ -75,7 +60,7 @@ def translate_text(request: TranslationRequest):
         raise HTTPException(status_code=400, detail="Text cannot be empty")
 
     try:
-        translator = get_translator(request.target_language)
+        translator = GoogleTranslator(source="auto", target=request.target_language)
         translated = translator.translate(request.text)
         return {
             "original": request.text,
@@ -104,7 +89,7 @@ def translate_batch(request: BatchTranslationRequest):
         raise HTTPException(status_code=400, detail="Texts list cannot be empty")
 
     try:
-        translator = get_translator(request.target_language)
+        translator = GoogleTranslator(source="auto", target=request.target_language)
         translated_texts = [
             translator.translate(text) if text.strip() else text
             for text in request.texts
